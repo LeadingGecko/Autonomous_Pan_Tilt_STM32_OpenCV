@@ -1,2 +1,6 @@
-# SAMSITE_CV_Tracking
-Real-time tracker, using OpenCV for object detection and tracking. 3D Printable files sourced and modified below, won't shoot darts. Just for fun :) 
+# Autonomous Pan-Tilt Tracking 
+ <---------------------------------------------------------------------->
+ <-> Using OpenCV YoLo model --> for facial tracking and detection 
+ <-> STM32 Nucleo L0 MCU for actuation control 
+ <-> Smartphone Application for Mode Change -> Control over servo motors 
+ <---------------------------------------------------------------------->
