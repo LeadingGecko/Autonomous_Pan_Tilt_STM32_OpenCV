@@ -44,7 +44,6 @@ def main():
     │   Laptop    │ ←─────────────→ │   STM32     │ ←─────────────→ │    Phone    │
     │   (YOLO)    │  Commands/Data  │  (Servos)   │   Mode Control  │   (UI App)  │
     └─────────────┘                 └─────────────┘                 └─────────────┘
-    
     FLOW:
     1. Initialize hardware (webcam, serial, YOLO)
     2. Loop:
