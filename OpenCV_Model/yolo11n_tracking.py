@@ -5,6 +5,7 @@ from ultralytics import YOLO
 
 from uart_communication import init_serial, send_servo_command, poll_mode_from_serial, encode_telemetry_uart
 from telemetry_extract import extract_person_telemetry
+from servo_control import compute_servo_targets_from_telemetry
 
 # ========================================
 # MAIN CONTROL LOOP
@@ -43,7 +44,6 @@ def main():
     │   Laptop    │ ←─────────────→ │   STM32     │ ←─────────────→ │    Phone    │
     │   (YOLO)    │  Commands/Data  │  (Servos)   │   Mode Control  │   (UI App)  │
     └─────────────┘                 └─────────────┘                 └─────────────┘
-    
     FLOW:
     1. Initialize hardware (webcam, serial, YOLO)
     2. Loop:
@@ -101,6 +101,8 @@ def main():
     
     # ========================================
     # Initialize Tracking State
+    # Need to setup mode changes to determine current mode between AUTO and MANUAL 
+    # Need to update pan_angle and pan_tilt based on predictions to display on laptop 
     # ========================================
     current_mode = MODE_AUTO  # Default to autonomous tracking
     pan_angle = INITIAL_PAN   # Start centered
@@ -110,11 +112,16 @@ def main():
     last_time = time.time()
     fps = 0.0
     
+    # Initialize computed servo angles (will be updated in main loop)
+    new_pan = INITIAL_PAN
+    new_tilt = INITIAL_TILT
+    
     # Send initial servo position
     if ser is not None:
         send_servo_command(ser, pan_angle, tilt_angle)
         time.sleep(0.1)  # Allow servos to reach position
     
+    # Debug / Test Statements 
     print("[INFO] System initialized. Starting main loop...")
     print("[INFO] Press 'q' to quit")
     
@@ -158,6 +165,7 @@ def main():
             
             # --------------------------------
             # STEP 4: Compute FPS
+            # Time Library to calculate FPS
             # --------------------------------
             now = time.time()
             dt = now - last_time
@@ -167,6 +175,7 @@ def main():
             
             # --------------------------------
             # STEP 5: Extract Telemetry
+            # From telemetry_extract.py need to use to determine angles, tracking status, etc.
             # --------------------------------
             telemetry = extract_person_telemetry(
                 result=result,
@@ -180,21 +189,23 @@ def main():
             # --------------------------------
             # STEP 6: Servo Control Logic
             # --------------------------------
-            # Only compute and send commands in AUTO mode
+            # Always compute new servo targets (for display in all modes)
+            new_pan, new_tilt = compute_servo_targets_from_telemetry(
+                telemetry=telemetry,
+                frame_shape=frame.shape,
+                pan_angle=pan_angle,
+                tilt_angle=tilt_angle
+            )
+            
+            # Only send commands in AUTO mode with serial connection
             if ser is not None and current_mode == MODE_AUTO:
-                # Compute new servo targets
-                pan_angle, tilt_angle = compute_servo_targets_from_telemetry(
-                    telemetry=telemetry,
-                    frame_shape=frame.shape,
-                    pan_angle=pan_angle,
-                    tilt_angle=tilt_angle
-                )
-                
-                # Send command to STM32
-                send_servo_command(ser, pan_angle, tilt_angle)
+                # Send computed angles to STM32
+                send_servo_command(ser, new_pan, new_tilt)
+                # Update tracking state with sent angles
+                pan_angle, tilt_angle = new_pan, new_tilt
             
             # In MANUAL mode, servos controlled by phone via STM32
-            # so we don't send servo commands from here
+            # Computed angles still displayed for reference
             
             # --------------------------------
             # STEP 7: Transmit Telemetry
@@ -206,6 +217,8 @@ def main():
             
             # --------------------------------
             # STEP 8: Visualization
+            # Display annotated frame with info overlays
+            # FPS / MODE / TRACKING STATUS / SERVO ANGLES 
             # --------------------------------
             # Draw bounding boxes and tracking info
             display_frame = result.plot()  # YOLO's built-in visualization
@@ -236,9 +249,10 @@ def main():
             )
             
             # Servo angles
+            # UPDATE pan_angle and tilt_angle based on predictions to display on laptop
             cv2.putText(
                 display_frame,
-                f"Pan: {pan_angle:.1f}°  Tilt: {tilt_angle:.1f}°",
+                f"Pan: {new_pan:.1f}°  Tilt: {new_tilt:.1f}°",
                 (10, 90),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.7,

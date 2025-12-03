@@ -1,119 +1,59 @@
 def compute_servo_targets_from_telemetry(telemetry, frame_shape, pan_angle, tilt_angle):
     """
-    Proportional controller to compute servo angles that center the target.
+    Compute servo target angles based on detected person telemetry.
     
-    CONTROL THEORY:
-    - Implements a P-controller (Proportional control)
-    - Error = distance from frame center to target center
-    - Output = angle adjustment proportional to error
-    - Formula: new_angle = current_angle + Kp * error
+    Args:
+        telemetry: Dict with keys like 'cx', 'cy' (center), 'tracking' (bool)
+        frame_shape: (height, width, channels)
+        pan_angle: Current pan angle (0–180°)
+        tilt_angle: Current tilt angle (0–180°)
     
-    WHY PROPORTIONAL CONTROL:
-    1. Simple and stable for visual servoing
-    2. Large errors → fast correction
-    3. Small errors → gentle adjustment (prevents oscillation)
-    4. No overshoot risk with proper Kp tuning
-    
-    COORDINATE SYSTEM:
-    - Image origin (0,0) is TOP-LEFT
-    - X increases RIGHT, Y increases DOWN
-    - Frame center = (W/2, H/2)
-    - Positive error: target is right/below center
-    
-    PARAMETERS:
-    - telemetry: Dict with tracking=1/0, cx, cy
-    - frame_shape: (H, W, C) for computing center
-    - pan_angle: Current pan servo angle (degrees)
-    - tilt_angle: Current tilt servo angle (degrees)
-    
-    RETURNS:
-    (new_pan, new_tilt) - Updated angles in degrees
-    
-    TUNING GUIDE:
-    - Increase Kp → faster response, risk of oscillation
-    - Decrease Kp → smoother motion, slower tracking
-    - Deadzone prevents micro-jitter when nearly centered
+    Returns:
+        (new_pan, new_tilt): Computed servo angles
     """
+    frame_h, frame_w = frame_shape[:2]
+    center_x, center_y = frame_w // 2, frame_h // 2
     
-    h, w = frame_shape[:2]
-    
-    # Configuration constants
-    KP_X = 0.05         # Pan gain: degrees per pixel error
-    KP_Y = 0.05         # Tilt gain: degrees per pixel error
-    DEADZONE_X = 10     # Ignore errors within ±10 pixels (horizontal)
-    DEADZONE_Y = 10     # Ignore errors within ±10 pixels (vertical)
-    PAN_MIN, PAN_MAX = 20, 160    # Physical servo limits
-    TILT_MIN, TILT_MAX = 30, 150
-
-    # If no person detected, maintain current orientation
-    if telemetry["tracking"] == 0:
+    # If not tracking, hold current angles
+    if not telemetry['tracking']:
         return pan_angle, tilt_angle
-
-    # ========================================
-    # STEP 1: Calculate Pixel Error
-    # ========================================
-    # Error = target position - desired position (frame center)
-    # Positive cx_err means target is RIGHT of center → pan right
-    # Positive cy_err means target is BELOW center → tilt down
     
-    frame_center_x = w / 2.0
-    frame_center_y = h / 2.0
+    # Get detected person center
+    person_cx = telemetry.get('cx', center_x)
+    person_cy = telemetry.get('cy', center_y)
     
-    cx_err = telemetry["cx"] - frame_center_x  
-    cy_err = telemetry["cy"] - frame_center_y
+    # ────────────────────────────────────
+    # PAN COMPUTATION (Horizontal)
+    # ────────────────────────────────────
+    # Error: how far person is from center (pixels)
+    pan_error_px = person_cx - center_x
     
-    # ========================================
-    # STEP 2: Apply Deadzone
-    # ========================================
-    # Prevents constant micro-adjustments when target is nearly centered
-    # Example: If target is 5px off-center but deadzone=10, ignore it
+    # Convert pixel error to angle (proportional control)
+    # Example: assume 30° per 320 pixels width
+    pan_gain = 30.0 / (frame_w / 2)  # degrees per pixel
+    pan_delta = pan_error_px * pan_gain
     
-    if abs(cx_err) < DEADZONE_X:
-        cx_err = 0.0
-    if abs(cy_err) < DEADZONE_Y:
-        cy_err = 0.0
+    # Smoothing: blend old and new (low-pass filter)
+    alpha = 0.3  # 0.0 = no movement, 1.0 = instant
+    new_pan = pan_angle + (pan_delta * alpha)
+    new_pan = max(0, min(180, new_pan))  # Clamp to 0–180°
     
-    # ========================================
-    # STEP 3: Proportional Control
-    # ========================================
-    # Convert pixel error to angle adjustment
-    # Sign convention depends on your mechanical setup
+    # ────────────────────────────────────
+    # TILT COMPUTATION (Vertical)
+    # ────────────────────────────────────
+    # Error: how far person is from center (pixels)
+    tilt_error_px = person_cy - center_y
     
-    # PAN CONTROL:
-    # - If person is RIGHT (+cx_err), we want to pan RIGHT (increase angle)
-    # - The negative sign may need adjustment based on your servo orientation
-    # - Test and flip sign if servo moves opposite direction
-    pan_delta = -KP_X * cx_err
+    # Convert pixel error to angle (proportional control)
+    # Example: assume 22.5° per 240 pixels height
+    tilt_gain = 22.5 / (frame_h / 2)  # degrees per pixel
+    tilt_delta = tilt_error_px * tilt_gain
     
-    # TILT CONTROL:
-    # - If person is BELOW (+cy_err), we want to tilt DOWN (increase angle)
-    # - Again, verify sign with your hardware
-    tilt_delta = KP_Y * cy_err
-    
-    # ========================================
-    # STEP 4: Update Angles & Clamp
-    # ========================================
-    # Add computed deltas to current angles
-    new_pan = pan_angle + pan_delta
-    new_tilt = tilt_angle + tilt_delta
-    
-    # Enforce physical servo limits to prevent damage
-    new_pan = clamp(new_pan, PAN_MIN, PAN_MAX)
-    new_tilt = clamp(new_tilt, TILT_MIN, TILT_MAX)
+    # Smoothing: blend old and new
+    new_tilt = tilt_angle + (tilt_delta * alpha)
+    new_tilt = max(0, min(180, new_tilt))  # Clamp to 0–180°
     
     return new_pan, new_tilt
-
-
-def clamp(val, vmin, vmax):
-    """
-    Constrain value to range [vmin, vmax].
-    
-    REASONING:
-    - Prevents servo commands outside safe operating range
-    - Protects hardware from mechanical damage
-    - Ensures smooth behavior at limits (no sudden stops)
-    """
-    return max(vmin, min(vmax, val))
 
 
 # ========================================
