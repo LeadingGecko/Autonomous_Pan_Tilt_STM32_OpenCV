@@ -61,7 +61,7 @@ def main():
     # ========================================
     # Configuration
     # ========================================
-    SERIAL_PORT = "COM8"  # TODO: Update for your system
+    SERIAL_PORT = "COM6"  # TODO: Update for your system
     BAUD_RATE = 115200
     MODEL_PATH = "yolo11n-seg.pt"
     CONF_THRESH = 0.8     # Detection confidence threshold
@@ -90,7 +90,7 @@ def main():
     
     # Initialize webcam
     print("[INFO] Opening webcam...")
-    webcamera = cv2.VideoCapture(0)
+    webcamera = cv2.VideoCapture(1)
     if not webcamera.isOpened():
         print("[ERROR] Could not open webcam")
         return

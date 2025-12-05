@@ -63,16 +63,23 @@ def encode_telemetry_uart(t):
     EXAMPLE OUTPUT:
     "T,AUTO,1,312,245,150,280,0.92,123.0,88.0,9.7\n"
     """
+    # To make parsing on resource-constrained MCUs simple and avoid
+    # floating-point scanf/printf requirements, we serialize numeric
+    # values as integers where reasonable:
+    #  - cx,cy,bw,bh: integers (pixels)
+    #  - conf: integer percent [0..100]
+    #  - servo_pan, servo_tilt: integer degrees
+    #  - fps: integer (rounded)
     line = (
         f"T,"                      # Message type
         f"{t['mode']},"           # AUTO or MANUAL
         f"{t['tracking']},"       # 0 or 1
-        f"{t['cx']},{t['cy']},"   # Bounding box center
-        f"{t['bw']},{t['bh']},"   # Box dimensions
-        f"{t['conf']:.2f},"       # Confidence (2 decimals sufficient)
-        f"{t['servo_pan']:.1f},"  # Pan angle (1 decimal)
-        f"{t['servo_tilt']:.1f}," # Tilt angle (1 decimal)
-        f"{t['fps']:.2f}\n"       # Framerate
+        f"{int(t['cx'])},{int(t['cy'])},"   # Bounding box center
+        f"{int(t['bw'])},{int(t['bh'])},"   # Box dimensions
+        f"{int(round(t['conf'] * 100))},"    # Confidence as percent (0-100)
+        f"{int(round(t['servo_pan']))},"     # Pan angle (degrees)
+        f"{int(round(t['servo_tilt']))},"    # Tilt angle (degrees)
+        f"{int(round(t['fps']))}\n"         # Framerate (rounded)
     )
     return line
 
