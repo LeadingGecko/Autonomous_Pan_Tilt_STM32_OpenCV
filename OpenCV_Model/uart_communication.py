@@ -89,6 +89,7 @@ def send_servo_command(ser, pan_angle, tilt_angle):
     Send servo position command to STM32 over UART.
     
     PROTOCOL: C,<pan>,<tilt>
+    *** Change to just <pan><tilt> what is C Prefix for ? 
     
     TIMING CONSIDERATIONS:
     - STM32 should acknowledge or implement command buffering
