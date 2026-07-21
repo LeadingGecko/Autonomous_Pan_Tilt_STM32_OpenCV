@@ -4,8 +4,13 @@ from ultralytics import YOLO
 import serial
 import time
 
+# Servo protocol expects ASCII commands in the format:
+# "C,<pan>,<tilt>\n" with angles clamped to 0-180 degrees.
+# The STM32 firmware echoes the command or returns an error string.
+
 class ObjectTracker:
-    def __init__(self, model_path='yolo11n.pt', serial_port='COM3', baud_rate=115200):
+    def __init__(self, model_path='yolo11n.pt', serial_port='COM3', baud_rate=115200,
+                 pan_center=90.0, tilt_center=90.0, deg_per_pixel=0.05):
         """
         Initialize the object tracker with YOLO11n model
         
@@ -40,6 +45,11 @@ class ObjectTracker:
         # Tracking parameters
         self.target_class = 0  # 0 = person, can be changed
         self.confidence_threshold = 0.5
+
+        # Servo state
+        self.pan_angle = pan_center
+        self.tilt_angle = tilt_center
+        self.deg_per_pixel = deg_per_pixel  # proportional constant to convert pixel error to servo delta
         
         # Dead zone (pixels around center where no adjustment is needed)
         self.dead_zone_x = 50
@@ -62,36 +72,36 @@ class ObjectTracker:
             error_y = 0
             
         return error_x, error_y
-    
-    def send_to_stm32(self, error_x, error_y):
+
+    def update_angles_from_error(self, error_x, error_y):
         """
-        Send error values to STM32 via serial
-        Protocol: <START><X_HIGH><X_LOW><Y_HIGH><Y_LOW><END>
+        Convert pixel error into servo angles and clamp to valid range.
+        """
+        delta_pan = -error_x * self.deg_per_pixel
+        delta_tilt = error_y * self.deg_per_pixel
+
+        self.pan_angle = np.clip(self.pan_angle + delta_pan, 0, 180)
+        self.tilt_angle = np.clip(self.tilt_angle + delta_tilt, 0, 180)
+    
+    def send_to_stm32(self, pan_angle, tilt_angle):
+        """
+        Send pan/tilt angles to STM32 using the ASCII protocol.
         """
         if self.serial is None:
             return
-        
+
+        pan_angle = int(np.clip(pan_angle, 0, 180))
+        tilt_angle = int(np.clip(tilt_angle, 0, 180))
+
+        command = f"C,{pan_angle},{tilt_angle}\n"
+
         try:
-            # Convert errors to 16-bit signed integers
-            error_x = np.clip(error_x, -32768, 32767)
-            error_y = np.clip(error_y, -32768, 32767)
-            
-            # Convert to unsigned for transmission
-            error_x_u = int(error_x) & 0xFFFF
-            error_y_u = int(error_y) & 0xFFFF
-            
-            # Create packet
-            packet = bytearray([
-                0xAA,  # START byte
-                (error_x_u >> 8) & 0xFF,  # X high byte
-                error_x_u & 0xFF,         # X low byte
-                (error_y_u >> 8) & 0xFF,  # Y high byte
-                error_y_u & 0xFF,         # Y low byte
-                0x55   # END byte
-            ])
-            
-            self.serial.write(packet)
-            
+            self.serial.write(command.encode("ascii"))
+            # Attempt to read echo/ack but ignore timeouts for robustness
+            if self.serial.in_waiting:
+                response = self.serial.readline().decode(errors="ignore").strip()
+                if response:
+                    print(f"STM32: {response}")
         except Exception as e:
             print(f"Serial communication error: {e}")
     
@@ -147,11 +157,12 @@ class ObjectTracker:
                     bbox_center_x = int((x1 + x2) / 2)
                     bbox_center_y = int((y1 + y2) / 2)
                     
-                    # Calculate error
+                    # Calculate error and update servo targets
                     error_x, error_y = self.calculate_error(bbox_center_x, bbox_center_y)
-                    
+                    self.update_angles_from_error(error_x, error_y)
+
                     # Send to STM32
-                    self.send_to_stm32(error_x, error_y)
+                    self.send_to_stm32(self.pan_angle, self.tilt_angle)
                     
                     # Draw bounding box
                     cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
@@ -168,9 +179,9 @@ class ObjectTracker:
                     cv2.putText(frame, f"Error X: {error_x}, Y: {error_y}", (10, 30),
                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
             
-            # If no target found, send zero errors
+            # If no target found, keep servos steady at last value
             if not target_found:
-                self.send_to_stm32(0, 0)
+                self.send_to_stm32(self.pan_angle, self.tilt_angle)
                 cv2.putText(frame, "No target detected", (10, 30),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
             
