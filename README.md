@@ -1,19 +1,15 @@
-# Arduino Flasher CLI
+# Autonomous Pan Tilt Tracking 
 
-A tool to download and flash Debian images on the board.
+Developed a real-time object tracking camera system that can automatically follow a person, using a two-axis pan-tilt mechanism. While running an Ultralytics computer vision model locally on a laptop, primarily handling compute and UART communication and telemetry transfer via UART to our STM32 Nucleo Dev Board. 
 
-## Docs
+##Project Constraints / Specifications
+* Must use STM32 Dev Board
+* Must integrate BLE aspect
+* Must integrate some form of computer vision
 
-For a full guide on how to use it, see the [User documentation](https://docs.arduino.cc/tutorials/uno-q/update-image/).
+##Hardware Specs
+* STM32 Nucleo (...)
+* 2 Hobbyist Servo Motors
+* USB Webcamera
+* BLE Module
 
-## Build and test it locally
-
-Build it with `task build` and run:
-
-```sh
-# Flash the latest release of the Debian image
-./build/arduino-flasher-cli flash latest
-
-# Flash a local image. It works with either an archived or extracted image
-./build/arduino-flasher-cli flash path/to/downloaded/image
-```
